@@ -119,6 +119,7 @@ export default function LeaguesPage() {
         )}
 
         <ul className="space-y-4">
+          
           {leagues.map((league) => (
             <li key={league.league_id} className="p-4 bg-gray-700 rounded text-white">
               <h2 className="text-xl font-bold">{league.league_name}</h2>

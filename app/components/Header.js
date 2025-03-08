@@ -10,12 +10,23 @@ export default function Header() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    setIsLoggedIn(!!localStorage.getItem('userId'));
+    // Check login status whenever localStorage changes
+    const checkLoginStatus = () => {
+      setIsLoggedIn(!!localStorage.getItem('userId'));
+    };
+
+    checkLoginStatus();
+    window.addEventListener('storage', checkLoginStatus);
+
+    return () => {
+      window.removeEventListener('storage', checkLoginStatus);
+    };
   }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('userId');
     localStorage.removeItem('token');
+    setIsLoggedIn(false);
     router.push('/login');
   };
 
@@ -48,14 +59,20 @@ export default function Header() {
                 Logout
               </button>
             ) : (
-              <>
-                <Link href="/login" className="text-gray-300 hover:text-white">
+              <div className="flex items-center space-x-4">
+                <Link 
+                  href="/login" 
+                  className="text-gray-300 hover:text-white px-3 py-2 rounded hover:bg-gray-700"
+                >
                   Login
                 </Link>
-                <Link href="/register" className="text-gray-300 hover:text-white">
+                <Link 
+                  href="/register" 
+                  className="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700"
+                >
                   Register
                 </Link>
-              </>
+              </div>
             )}
           </div>
         </div>
