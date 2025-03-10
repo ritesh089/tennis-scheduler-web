@@ -14,9 +14,10 @@ export default function LeaguePage() {
   const [isLeagueAdmin, setIsLeagueAdmin] = useState(false);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
-  const [rejectComment, setRejectComment] = useState('');
   const [selectedRequestId, setSelectedRequestId] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showAcceptDialog, setShowAcceptDialog] = useState(false);
+  const [acceptNote, setAcceptNote] = useState('');
 
   useEffect(() => {
     fetchLeagueData();
@@ -83,7 +84,7 @@ export default function LeaguePage() {
       });
 
       if (approveResponse.ok) {
-        // Then, add the user to the league using the correct endpoint
+        // Then, add the user to the league
         const request = pendingRequests.find(req => req.request_id === requestId);
         const addUserResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/leagues/${leagueId}/join`, {
           method: 'POST',
@@ -112,24 +113,22 @@ export default function LeaguePage() {
     setShowRejectDialog(true);
   }
 
-  async function submitReject(e) {
-    e.preventDefault();
+  async function submitReject(requestId, note) {
     setIsProcessing(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/leagues/${leagueId}/requests/${selectedRequestId}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/leagues/${leagueId}/join-requests/${requestId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
           status: 'rejected',
-          rejection_reason: rejectComment 
+          notes: note || null
         }),
       });
 
       if (response.ok) {
         setShowRejectDialog(false);
-        setRejectComment('');
         setSelectedRequestId(null);
         fetchPendingRequests();
       }
@@ -254,6 +253,23 @@ export default function LeaguePage() {
   }
 
   function PendingRequestsTab() {
+    const [dialogRejectNote, setDialogRejectNote] = useState('');
+    
+    const handleRejectNoteChange = (e) => {
+      e.stopPropagation();
+      setDialogRejectNote(e.target.value);
+    };
+    
+    const handleSubmitReject = (e) => {
+      e.preventDefault();
+      submitReject(selectedRequestId, dialogRejectNote);
+    };
+    
+    const handleCloseRejectDialog = () => {
+      setShowRejectDialog(false);
+      setSelectedRequestId(null);
+    };
+
     return (
       <div className="space-y-4">
         <h3 className="text-xl font-semibold text-white mb-4">Pending Join Requests</h3>
@@ -281,7 +297,7 @@ export default function LeaguePage() {
                           : 'bg-green-600 hover:bg-green-700'
                       }`}
                     >
-                      {isProcessing ? 'Processing...' : 'Accept'}
+                      Accept
                     </button>
                     <button
                       onClick={() => handleRejectRequest(request.request_id)}
@@ -303,40 +319,41 @@ export default function LeaguePage() {
 
         {/* Reject Dialog */}
         {showRejectDialog && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div 
+              className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
               <h2 className="text-2xl font-bold text-white mb-4">Reject Request</h2>
-              <form onSubmit={submitReject} className="space-y-4">
+              <form onSubmit={handleSubmitReject} className="space-y-4">
                 <div>
                   <label className="block text-gray-300 mb-2">
-                    Reason for rejection:
+                    Notes (Optional):
                   </label>
                   <textarea
-                    value={rejectComment}
-                    onChange={(e) => setRejectComment(e.target.value)}
-                    required
+                    value={dialogRejectNote}
+                    onChange={handleRejectNoteChange}
                     rows="4"
                     className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring focus:border-blue-300"
-                    placeholder="Provide a reason for rejecting this request..."
+                    placeholder="Add any notes about the rejection..."
                   />
                 </div>
                 <div className="flex justify-end space-x-3">
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowRejectDialog(false);
-                      setRejectComment('');
-                      setSelectedRequestId(null);
-                    }}
+                    onClick={handleCloseRejectDialog}
                     className="px-4 py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    disabled={isProcessing || !rejectComment.trim()}
+                    disabled={isProcessing}
                     className={`px-4 py-2 rounded text-white transition-colors ${
-                      isProcessing || !rejectComment.trim()
+                      isProcessing
                         ? 'bg-gray-600 cursor-not-allowed'
                         : 'bg-red-600 hover:bg-red-700'
                     }`}
