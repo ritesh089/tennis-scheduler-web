@@ -125,7 +125,7 @@ export default function LeaguesPage() {
               <h2 className="text-xl font-bold">{league.league_name}</h2>
               <p>{league.description}</p>
             
-              <Link href={`/leagues/league-ui/${league.league_id}`} className="text-blue-400 hover:underline">
+              <Link href={`/leagues/league-ui/${league.league_name}`} className="text-blue-400 hover:underline">
                 View Details
               </Link>
             </li>
