@@ -8,11 +8,20 @@ import { useState, useEffect } from 'react';
 export default function Header() {
   const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [pendingMatches, setPendingMatches] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check login status whenever localStorage changes
     const checkLoginStatus = () => {
-      setIsLoggedIn(!!localStorage.getItem('userId'));
+      const playerId = localStorage.getItem('userId');
+      setIsLoggedIn(!!playerId);
+      
+      if (playerId) {
+        fetchPendingMatches(playerId);
+      } else {
+        setPendingMatches([]);
+        setLoading(false);
+      }
     };
 
     checkLoginStatus();
@@ -22,6 +31,24 @@ export default function Header() {
       window.removeEventListener('storage', checkLoginStatus);
     };
   }, []);
+
+  async function fetchPendingMatches(playerId) {
+    setLoading(true);
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/matches/pending/${playerId}`);
+      if (response.ok) {
+        const data = await response.json();
+        let matches = data.matches;
+        // Filter to only include pending matches
+        const pending = matches.filter(match => match.status?.toLowerCase() === 'pending');
+        setPendingMatches(pending);
+      }
+    } catch (error) {
+      console.error('Error fetching pending matches:', error);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const handleLogout = () => {
     localStorage.removeItem('userId');
@@ -52,12 +79,28 @@ export default function Header() {
           
           <div className="flex items-center space-x-4">
             {isLoggedIn ? (
-              <button
-                onClick={handleLogout}
-                className="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded"
-              >
-                Logout
-              </button>
+              <>
+                {!loading && pendingMatches.length > 0 && (
+                  <Link 
+                    href="/dashboard?view=pending"
+                    className="relative p-1 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
+                    aria-label={`${pendingMatches.length} pending matches`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                      {pendingMatches.length}
+                    </span>
+                  </Link>
+                )}
+                <button
+                  onClick={handleLogout}
+                  className="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded"
+                >
+                  Logout
+                </button>
+              </>
             ) : (
               <div className="flex items-center space-x-4">
                 <Link 

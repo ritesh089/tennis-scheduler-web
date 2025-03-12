@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
 
 export default function LeaguePage() {
   const { leagueId } = useParams();
@@ -18,6 +19,17 @@ export default function LeaguePage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showAcceptDialog, setShowAcceptDialog] = useState(false);
   const [acceptNote, setAcceptNote] = useState('');
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedTime, setSelectedTime] = useState('12:00');
+  const [matchLocation, setMatchLocation] = useState('');
+  const [matchNotes, setMatchNotes] = useState('');
+  const [currentWeek, setCurrentWeek] = useState(new Date());
+  const [playerMatches, setPlayerMatches] = useState([]);
+  const [loadingMatches, setLoadingMatches] = useState(false);
+  const [isDoubles, setIsDoubles] = useState(false);
+  const [isPractice, setIsPractice] = useState(false);
 
   useEffect(() => {
     fetchLeagueData();
@@ -170,25 +182,149 @@ export default function LeaguePage() {
     }
   }
 
+  async function fetchPlayerSchedule(playerId) {
+    setLoadingMatches(true);
+    try {
+      // Comment out the actual API call for demonstration
+      // const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/players/${playerId}/matches`);
+      // const data = await response.json();
+      
+      // Use mock data instead
+      const data = getMockPlayerSchedule();
+      setPlayerMatches(data);
+    } catch (error) {
+      console.error('Error fetching player schedule:', error);
+    } finally {
+      setLoadingMatches(false);
+    }
+  }
+
+  function handleScheduleClick(player) {
+    setSelectedPlayer(player);
+    setSelectedDate(new Date());
+    setSelectedTime('12:00');
+    setMatchLocation('');
+    setMatchNotes('');
+    setIsDoubles(false);
+    setIsPractice(false);
+    setShowScheduleModal(true);
+    fetchPlayerSchedule(player.user_id);
+  }
+
+  function getMatchesForDay(date) {
+    return playerMatches.filter(match => 
+      isSameDay(new Date(match.match_date), date)
+    );
+  }
+
+  function isTimeSlotAvailable(date, time) {
+    const [hours, minutes] = time.split(':').map(Number);
+    const matchesOnDay = getMatchesForDay(date);
+    
+    return !matchesOnDay.some(match => {
+      const matchDate = new Date(match.match_date);
+      const matchHours = matchDate.getHours();
+      const matchMinutes = matchDate.getMinutes();
+      
+      // Consider a match to block a 2-hour window
+      const startHour = matchHours - 1;
+      const endHour = matchHours + 1;
+      
+      if (hours > startHour && hours < endHour) return true;
+      if (hours === startHour && minutes >= matchMinutes) return true;
+      if (hours === endHour && minutes <= matchMinutes) return true;
+      
+      return false;
+    });
+  }
+
+  // Add a function to convert local date and time to UTC datetime string
+  function formatDateTimeUTC(date, timeString) {
+    // Create a new date object from the selected date
+    const dateObj = new Date(date);
+    
+    // Parse the time string (format: "HH:MM")
+    const [hours, minutes] = timeString.split(':').map(Number);
+    
+    // Set the hours and minutes
+    dateObj.setHours(hours, minutes, 0, 0);
+    
+    // Convert to UTC ISO string and remove the milliseconds and 'Z'
+    // Format: "2023-05-15T14:00:00"
+    return dateObj.toISOString().slice(0, 19);
+  }
+
+  // Update handleScheduleSubmit with the correct payload structure
+  async function handleScheduleSubmit(e) {
+    e.preventDefault();
+    setIsProcessing(true);
+
+    try {
+      const userId = localStorage.getItem('userId');
+      
+      // Format the datetime in UTC
+      const datetimeUTC = formatDateTimeUTC(selectedDate, selectedTime);
+      
+      // Determine match type based on isDoubles toggle
+      const matchType = isDoubles ? 'Doubles' : 'Singles';
+      
+      // Create the correct payload
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/matches`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          match_type: matchType,
+          player1_id: userId,
+          player2_id: selectedPlayer.name,
+          league_id: leagueId,
+          datetime: datetimeUTC,
+          location: matchLocation,
+          status: 'Pending',
+          notes: matchNotes || "Match request",
+          is_practice: isPractice // Keep this additional field if your API supports it
+        }),
+      });
+
+      if (response.ok) {
+        setShowScheduleModal(false);
+        // Maybe show a success message or refresh data
+      }
+    } catch (error) {
+      console.error('Error scheduling match:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
+  function getWeekDays() {
+    const start = startOfWeek(currentWeek, { weekStartsOn: 1 });
+    return [...Array(7)].map((_, i) => addDays(start, i));
+  }
+
   function PlayersTab() {
     return (
       <div className="space-y-4">
         <h3 className="text-xl font-semibold text-white mb-4">Players</h3>
         <div className="grid gap-4">
-          {leagueData?.players?.map((player) => (
-            <div key={player.name} className="bg-gray-700 p-4 rounded-lg flex items-center justify-between">
+          {leagueData?.players?.map((player, index) => (
+            <div key={`${player.user_id}-${index}`} className="bg-gray-700 p-4 rounded-lg flex items-center justify-between">
               <div>
                 <div className="text-white font-medium">{player.name}</div>
                 <div className="text-gray-400 text-sm">Matches played: {player.matches_played}</div>
               </div>
-              <div className="text-blue-400">Rank: #{player.rank}</div>
+              <div className="flex items-center space-x-3">
+                <div className="text-blue-400">Rank: #{player.rank}</div>
+                <button
+                  onClick={() => handleScheduleClick(player)}
+                  className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
+                >
+                  Schedule Match
+                </button>
+              </div>
             </div>
           ))}
-          {(!leagueData?.players || leagueData.players.length === 0) && (
-            <div className="text-gray-400 text-center py-4">
-              No players have joined this league yet.
-            </div>
-          )}
         </div>
       </div>
     );
@@ -369,6 +505,42 @@ export default function LeaguePage() {
     );
   }
 
+  // Add this mock data function for demonstration purposes
+  function getMockPlayerSchedule() {
+    const today = new Date();
+    const tomorrow = addDays(today, 1);
+    
+    return [
+      {
+        match_id: "mock-match-1",
+        match_date: new Date(today.setHours(16, 0, 0, 0)).toISOString(),
+        opponent_name: "John Smith",
+        location: "Downtown Tennis Court"
+      },
+      {
+        match_id: "mock-match-2",
+        match_date: new Date(tomorrow.setHours(10, 30, 0, 0)).toISOString(),
+        opponent_name: "Sarah Johnson",
+        location: "Central Park Courts"
+      }
+    ];
+  }
+
+  // Add a function to check if all required fields are filled
+  function isFormValid() {
+    // Check if date is selected (should always be true since we default to today)
+    const isDateSelected = !!selectedDate;
+    
+    // Check if time is selected (should always be true since we default to 12:00)
+    const isTimeSelected = !!selectedTime;
+    
+    // Check if location is entered and not just whitespace
+    const isLocationEntered = !!matchLocation && matchLocation.trim() !== '';
+    
+    // All fields must be valid
+    return isDateSelected && isTimeSelected && isLocationEntered;
+  }
+
   if (loading) {
     return <div className="text-white text-center">Loading...</div>;
   }
@@ -490,6 +662,240 @@ export default function LeaguePage() {
           {activeTab === 'requests' && isLeagueAdmin && <PendingRequestsTab />}
         </div>
       </div>
+
+      {/* Schedule Match Modal */}
+      {showScheduleModal && selectedPlayer && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-white">
+                Schedule Match with {selectedPlayer.name}
+              </h2>
+              <button
+                onClick={() => setShowScheduleModal(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            {loadingMatches ? (
+              <div className="text-center py-4 text-gray-400">Loading player's schedule...</div>
+            ) : (
+              <>
+                <div className="mb-6">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-lg font-medium text-white">Select Date & Time</h3>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => setCurrentWeek(date => addDays(date, -7))}
+                        className="px-2 py-1 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors"
+                      >
+                        ◀ Previous
+                      </button>
+                      <button
+                        onClick={() => setCurrentWeek(new Date())}
+                        className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                      >
+                        Today
+                      </button>
+                      <button
+                        onClick={() => setCurrentWeek(date => addDays(date, 7))}
+                        className="px-2 py-1 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors"
+                      >
+                        Next ▶
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-2 mb-4">
+                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+                      <div key={day} className="text-center text-gray-400 text-sm">
+                        {day}
+                      </div>
+                    ))}
+                    
+                    {getWeekDays().map((date) => {
+                      const matchesOnDay = getMatchesForDay(date);
+                      const hasMatches = matchesOnDay.length > 0;
+                      
+                      return (
+                        <button
+                          key={date.toString()}
+                          onClick={() => setSelectedDate(date)}
+                          className={`p-2 rounded text-center relative ${
+                            format(date, 'yyyy-MM-dd') === format(selectedDate, 'yyyy-MM-dd')
+                              ? 'bg-blue-600 text-white'
+                              : hasMatches 
+                                ? 'bg-amber-800 text-white hover:bg-amber-700' 
+                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          }`}
+                        >
+                          <div className="text-sm">{format(date, 'MMM d')}</div>
+                          {hasMatches && (
+                            <div className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full"></div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Player's existing schedule for selected day */}
+                  <div className="mb-4">
+                    <h4 className="text-white font-medium mb-2">
+                      {selectedPlayer.name}'s Schedule on {format(selectedDate, 'MMMM d, yyyy')}:
+                    </h4>
+                    <div className="bg-gray-700 rounded-lg p-3">
+                      {getMatchesForDay(selectedDate).length > 0 ? (
+                        <ul className="space-y-2">
+                          {getMatchesForDay(selectedDate).map(match => (
+                            <li key={match.match_id} className="flex items-start">
+                              <div className="bg-red-900 px-2 py-1 rounded text-sm text-white mr-2">
+                                {format(new Date(match.match_date), 'h:mm a')}
+                              </div>
+                              <div>
+                                <div className="text-white">vs {match.opponent_name}</div>
+                                <div className="text-gray-400 text-sm">{match.location}</div>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-gray-400">No matches scheduled for this day</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-gray-300 mb-2">Time:</label>
+                    <select
+                      value={selectedTime}
+                      onChange={(e) => setSelectedTime(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring focus:border-blue-300"
+                    >
+                      {[...Array(24)].map((_, hour) => [
+                        <option 
+                          key={`${hour}-00`} 
+                          value={`${hour.toString().padStart(2, '0')}:00`}
+                          disabled={!isTimeSlotAvailable(selectedDate, `${hour}:00`)}
+                          className={!isTimeSlotAvailable(selectedDate, `${hour}:00`) ? 'bg-red-900' : ''}
+                        >
+                          {hour.toString().padStart(2, '0')}:00
+                          {!isTimeSlotAvailable(selectedDate, `${hour}:00`) ? ' (Unavailable)' : ''}
+                        </option>,
+                        <option 
+                          key={`${hour}-30`} 
+                          value={`${hour.toString().padStart(2, '0')}:30`}
+                          disabled={!isTimeSlotAvailable(selectedDate, `${hour}:30`)}
+                          className={!isTimeSlotAvailable(selectedDate, `${hour}:30`) ? 'bg-red-900' : ''}
+                        >
+                          {hour.toString().padStart(2, '0')}:30
+                          {!isTimeSlotAvailable(selectedDate, `${hour}:30`) ? ' (Unavailable)' : ''}
+                        </option>
+                      ]).flat()}
+                    </select>
+                  </div>
+                </div>
+
+                <form onSubmit={handleScheduleSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-gray-300 mb-2">Location:</label>
+                    <input
+                      type="text"
+                      value={matchLocation}
+                      onChange={(e) => setMatchLocation(e.target.value)}
+                      required
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring focus:border-blue-300"
+                      placeholder="Enter match location"
+                    />
+                  </div>
+                  
+                  <div className="flex flex-col space-y-4 sm:flex-row sm:space-y-0 sm:space-x-6 sm:justify-between">
+                    {/* Singles/Doubles Toggle */}
+                    <div className="flex items-center">
+                      <label className="flex items-center cursor-pointer">
+                        <div className="mr-3 text-gray-300">Match Type:</div>
+                        <div className="relative">
+                          <input 
+                            type="checkbox" 
+                            className="sr-only" 
+                            checked={isDoubles}
+                            onChange={() => setIsDoubles(!isDoubles)}
+                          />
+                          <div className={`block w-14 h-8 rounded-full transition-colors ${
+                            isDoubles ? 'bg-blue-600' : 'bg-gray-600'
+                          }`}></div>
+                          <div className={`absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${
+                            isDoubles ? 'transform translate-x-6' : ''
+                          }`}></div>
+                        </div>
+                        <div className="ml-3 text-gray-300">
+                          {isDoubles ? 'Doubles' : 'Singles'}
+                        </div>
+                      </label>
+                    </div>
+                    
+                    {/* Practice/Set Toggle */}
+                    <div className="flex items-center">
+                      <label className="flex items-center cursor-pointer">
+                        <div className="mr-3 text-gray-300">Format:</div>
+                        <div className="relative">
+                          <input 
+                            type="checkbox" 
+                            className="sr-only" 
+                            checked={isPractice}
+                            onChange={() => setIsPractice(!isPractice)}
+                          />
+                          <div className={`block w-14 h-8 rounded-full transition-colors ${
+                            isPractice ? 'bg-blue-600' : 'bg-gray-600'
+                          }`}></div>
+                          <div className={`absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${
+                            isPractice ? 'transform translate-x-6' : ''
+                          }`}></div>
+                        </div>
+                        <div className="ml-3 text-gray-300">
+                          {isPractice ? 'Practice' : 'Set Match'}
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-gray-300 mb-2">Notes (Optional):</label>
+                    <textarea
+                      value={matchNotes}
+                      onChange={(e) => setMatchNotes(e.target.value)}
+                      rows="3"
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring focus:border-blue-300"
+                      placeholder="Any additional details about the match"
+                    />
+                  </div>
+                  <div className="flex justify-end space-x-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowScheduleModal(false)}
+                      className="px-4 py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isProcessing || !isFormValid()}
+                      className={`px-4 py-2 rounded text-white transition-colors ${
+                        isProcessing || !isFormValid()
+                          ? 'bg-gray-600 cursor-not-allowed'
+                          : 'bg-blue-600 hover:bg-blue-700'
+                      }`}
+                    >
+                      {isProcessing ? 'Scheduling...' : 'Schedule Match'}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
