@@ -30,10 +30,15 @@ export default function LeaguePage() {
   const [loadingMatches, setLoadingMatches] = useState(false);
   const [isDoubles, setIsDoubles] = useState(false);
   const [isPractice, setIsPractice] = useState(false);
+  const [isPlayerMember, setIsPlayerMember] = useState(false);
+  const [hasPendingRequest, setHasPendingRequest] = useState(false);
+  const [upcomingMatches, setUpcomingMatches] = useState([]);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     fetchLeagueData();
     checkAdminStatus();
+    checkMembershipStatus();
     if (isLeagueAdmin) {
       fetchPendingRequests();
     }
@@ -70,6 +75,29 @@ export default function LeaguePage() {
       setIsLeagueAdmin(data.role === 'admin');
     } catch (error) {
       console.error('Error checking admin status:', error);
+    }
+  }
+
+  async function checkMembershipStatus() {
+    try {
+      const userId = localStorage.getItem('userId');
+      if (!userId) return;
+
+      // Check if player is already a member
+      // Check if player is already a member by looking through leagueData.players
+      const isMember = leagueData?.players?.some(player => player.name === userId);
+      setIsPlayerMember(isMember);
+   
+
+      // Check if player has a pending request
+      // Check if player has a pending request by looking through pendingRequests
+      const hasPending = pendingRequests.some(request => 
+        request.name === userId && request.status === 'Pending'
+      );
+      setHasPendingRequest(hasPending);
+     
+    } catch (error) {
+      console.error('Error checking membership status:', error);
     }
   }
 
@@ -170,10 +198,8 @@ export default function LeaguePage() {
       if (response.ok) {
         setShowJoinDialog(false);
         setJoinComment('');
-        // Refresh league data to update UI
-        fetchLeagueData();
-      } else {
-        console.error('Failed to join league');
+        setHasPendingRequest(true);
+        // You might want to show a success message here
       }
     } catch (error) {
       console.error('Error sending join request:', error);
@@ -363,26 +389,120 @@ export default function LeaguePage() {
   }
 
   function UpcomingMatchesTab() {
+    const [upcomingMatches, setUpcomingMatches] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+      fetchUpcomingMatches();
+    }, []);
+
+    async function fetchUpcomingMatches() {
+      try {
+        setLoading(true);
+        
+        // Use POST method with status in the JSON payload
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/matches/league/${leagueId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            status: ['Scheduled', 'Pending', 'Accepted', 'Confirmed'] // Include all relevant statuses
+          }),
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+         let matches = data.matches;           // Filter to only include upcoming matches (in the future)
+          const upcoming = matches.filter(match => {
+            const matchDate = new Date(match.datetime || match.match_date);
+            return matchDate > new Date(); // Only include matches that are in the future
+          });
+          
+          // Sort by date (closest first)
+          upcoming.sort((a, b) => {
+            const dateA = new Date(a.datetime || a.match_date);
+            const dateB = new Date(b.datetime || b.match_date);
+            return dateA - dateB;
+          });
+          
+          setUpcomingMatches(upcoming);
+          console.log('Fetched upcoming matches:', upcoming);
+        } else {
+          setError('Failed to fetch upcoming matches');
+        }
+      } catch (error) {
+        console.error('Error fetching upcoming matches:', error);
+        setError('An error occurred while fetching matches');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    if (loading) {
+      return <div className="text-center py-8 text-gray-400">Loading upcoming matches...</div>;
+    }
+
+    if (error) {
+      return <div className="text-center py-8 text-red-400">{error}</div>;
+    }
+
+    if (upcomingMatches.length === 0) {
+      return <div className="text-center py-8 text-gray-400">No upcoming matches scheduled</div>;
+    }
+
     return (
       <div className="space-y-4">
         <h3 className="text-xl font-semibold text-white mb-4">Upcoming Matches</h3>
         <div className="grid gap-4">
-          {leagueData?.upcoming_matches?.map((match) => (
-            <div key={match.match_id} className="bg-gray-700 p-4 rounded-lg">
-              <div className="flex justify-between items-center mb-2">
-                <div className="text-white font-medium">
-                  {match.player1} vs {match.player2}
+          {/* Add key prop to each child in the list */}
+          {upcomingMatches.map((match, index) => {
+            const matchDate = new Date(match.datetime || match.match_date);
+            
+            return (
+              <div key={match.match_id || index} className="bg-gray-700 p-4 rounded-lg">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="text-white font-medium">
+                    {match.match_type || 'Singles'} Match: {match.player1_id} vs {match.player2_id}
+                  </div>
+                  <div className="bg-green-600 text-white text-sm px-2 py-1 rounded">
+                    Scheduled
+                  </div>
                 </div>
-                <div className="text-gray-400 text-sm">
-                  {new Date(match.match_date).toLocaleDateString()}
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                  <div>
+                    <div className="text-gray-400 text-sm">Date & Time:</div>
+                    <div className="text-white">
+                      {matchDate.toLocaleDateString()} at {matchDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <div className="text-gray-400 text-sm">Location:</div>
+                    <div className="text-white">{match.location}</div>
+                  </div>
                 </div>
+                
+                {match.is_practice !== undefined && (
+                  <div className="mt-2">
+                    <span className="text-gray-400 text-sm mr-2">Format:</span>
+                    <span className="text-white">{match.is_practice ? 'Practice' : 'Set Match'}</span>
+                  </div>
+                )}
+                
+                {match.notes && (
+                  <div className="mt-3 pt-3 border-t border-gray-600">
+                    <div className="text-gray-400 text-sm">Notes:</div>
+                    <div className="text-gray-300 mt-1">{match.notes}</div>
+                  </div>
+                )}
               </div>
-              <div className="text-gray-400 text-sm">{match.location}</div>
-              {match.notes && (
-                <div className="text-gray-500 text-sm mt-2">{match.notes}</div>
-              )}
-            </div>
-          ))}
+            );
+          })}
+          
+         
         </div>
       </div>
     );
@@ -554,9 +674,18 @@ export default function LeaguePage() {
         </div>
         <button
           onClick={() => setShowJoinDialog(true)}
-          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          disabled={isPlayerMember || hasPendingRequest}
+          className={`px-6 py-3 rounded-lg transition-colors ${
+            isPlayerMember || hasPendingRequest
+              ? 'bg-gray-600 text-gray-300 cursor-not-allowed'
+              : 'bg-blue-600 text-white hover:bg-blue-700'
+          }`}
         >
-          Request to Join
+          {isPlayerMember 
+            ? 'Member' 
+            : hasPendingRequest 
+              ? 'Request Pending' 
+              : 'Request to Join'}
         </button>
       </div>
 

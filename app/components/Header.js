@@ -2,45 +2,80 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
 
 export default function Header() {
   const router = useRouter();
+  const pathname = usePathname();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [pendingMatches, setPendingMatches] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
 
+  // Run this effect only once on component mount
   useEffect(() => {
-    const checkLoginStatus = () => {
-      const playerId = localStorage.getItem('userId');
-      setIsLoggedIn(!!playerId);
+    // Check if we're in the browser environment
+    if (typeof window !== 'undefined') {
+      const userId = localStorage.getItem('userId');
+      console.log('Initial userId from localStorage:', userId);
       
-      if (playerId) {
-        fetchPendingMatches(playerId);
+      setIsLoggedIn(!!userId);
+      
+      if (userId) {
+        fetchPendingMatches(userId);
       } else {
         setPendingMatches([]);
         setLoading(false);
       }
-    };
-
-    checkLoginStatus();
-    window.addEventListener('storage', checkLoginStatus);
-
-    return () => {
-      window.removeEventListener('storage', checkLoginStatus);
-    };
+      
+      setInitialized(true);
+      
+      // Set up storage event listener for changes
+      const handleStorageChange = () => {
+        const currentUserId = localStorage.getItem('userId');
+        console.log('Storage changed, userId:', currentUserId);
+        setIsLoggedIn(!!currentUserId);
+        
+        if (currentUserId) {
+          fetchPendingMatches(currentUserId);
+        } else {
+          setPendingMatches([]);
+        }
+      };
+      
+      window.addEventListener('storage', handleStorageChange);
+      
+      // Custom event for login/logout within the same tab
+      window.addEventListener('auth-change', handleStorageChange);
+      
+      return () => {
+        window.removeEventListener('storage', handleStorageChange);
+        window.removeEventListener('auth-change', handleStorageChange);
+      };
+    }
   }, []);
 
-  async function fetchPendingMatches(playerId) {
+  // Add a second effect to monitor pathname changes
+  useEffect(() => {
+    if (initialized && pathname) {
+      const userId = localStorage.getItem('userId');
+      setIsLoggedIn(!!userId);
+      
+      if (userId && isLoggedIn) {
+        fetchPendingMatches(userId);
+      }
+    }
+  }, [pathname, initialized]);
+
+  async function fetchPendingMatches(userId) {
     setLoading(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/matches/pending/${playerId}`);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/matches/user/${userId}`);
       if (response.ok) {
         const data = await response.json();
-        let matches = data.matches;
         // Filter to only include pending matches
-        const pending = matches.filter(match => match.status?.toLowerCase() === 'pending');
+        const pending = data.filter(match => match.status?.toLowerCase() === 'pending');
         setPendingMatches(pending);
       }
     } catch (error) {
@@ -54,6 +89,11 @@ export default function Header() {
     localStorage.removeItem('userId');
     localStorage.removeItem('token');
     setIsLoggedIn(false);
+    setPendingMatches([]);
+    
+    // Dispatch custom event to notify other components
+    window.dispatchEvent(new Event('auth-change'));
+    
     router.push('/login');
   };
 

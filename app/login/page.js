@@ -3,31 +3,47 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { loginUser } from '../../lib/api';
 import Link from 'next/link';
 
-export default function Login() {
+export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
   const [loginSuccess, setLoginSuccess] = useState(false);
-  const [userId, setUserId] = useState(null);
 
   async function handleSubmit(e) {
     e.preventDefault();
-    const response = await loginUser({ email, password });
-    console.log(response);
-    
-    if (response.user_id) {
-      localStorage.setItem('userId', response.user_id);
-      setUserId(response.user_id);
-      setLoginSuccess(true);
-      // Delay redirect to show success message
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 2000);
-    } else {
-      console.error('Login failed: No user ID received');
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        localStorage.setItem('userId', data.user_id);
+        localStorage.setItem('token', data.token);
+        
+        // Dispatch custom event to notify other components about the login
+        window.dispatchEvent(new Event('auth-change'));
+        
+        setLoginSuccess(true);
+        
+        // Redirect to dashboard (reverting the change)
+        router.push('/');
+      } else {
+        setLoginError('Invalid credentials');
+      }
+    } catch (error) {
+      console.error('Error during login:', error);
+      setLoginError('An error occurred during login');
     }
   }
 
@@ -43,7 +59,6 @@ export default function Login() {
               </svg>
             </div>
             <p className="text-green-400 mb-2">Login Successful!</p>
-            <p className="text-gray-300">User ID: {userId}</p>
           </div>
         ) : (
           <>

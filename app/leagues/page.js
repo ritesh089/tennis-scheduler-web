@@ -10,11 +10,19 @@ export default function LeaguesPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newLeagueName, setNewLeagueName] = useState('');
   const [newLeagueDescription, setNewLeagueDescription] = useState('');
+  const [loading, setLoading] = useState(true);
 
   async function fetchLeagues() {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/leagues?search=${searchTerm}`);
-    const data = await res.json();
-    setLeagues(data);
+    setLoading(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/leagues?search=${searchTerm}`);
+      const data = await res.json();
+      setLeagues(data);
+    } catch (error) {
+      console.error('Error fetching leagues:', error);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -58,6 +66,9 @@ export default function LeaguesPage() {
     }
   }
 
+  // Determine if search bar should be shown (5 or more leagues)
+  const showSearchBar = leagues.length >= 5;
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900">
       <div className="max-w-3xl w-full bg-gray-800 p-8 shadow rounded">
@@ -71,21 +82,24 @@ export default function LeaguesPage() {
           </button>
         </div>
 
-        <form onSubmit={handleSearch} className="mb-8 flex justify-center">
-          <input
-            type="text"
-            placeholder="Search leagues..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="px-4 py-3 w-2/3 rounded-l bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500"
-          />
-          <button
-            type="submit"
-            className="px-6 py-3 bg-blue-800 text-white rounded-r hover:bg-blue-900 transition-colors"
-          >
-            Search
-          </button>
-        </form>
+        {/* Only show search bar if there are 5 or more leagues */}
+        {showSearchBar && (
+          <form onSubmit={handleSearch} className="mb-8 flex justify-center">
+            <input
+              type="text"
+              placeholder="Search leagues..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="px-4 py-3 w-2/3 rounded-l bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500"
+            />
+            <button
+              type="submit"
+              className="px-6 py-3 bg-blue-800 text-white rounded-r hover:bg-blue-900 transition-colors"
+            >
+              Search
+            </button>
+          </form>
+        )}
 
         {showCreateForm && (
           <form onSubmit={handleCreateLeague} className="mb-8 bg-gray-750 p-6 rounded-lg shadow-lg">
@@ -118,19 +132,24 @@ export default function LeaguesPage() {
           </form>
         )}
 
-        <ul className="space-y-4">
-          
-          {leagues.map((league) => (
-            <li key={league.league_id} className="p-4 bg-gray-700 rounded text-white">
-              <h2 className="text-xl font-bold">{league.league_name}</h2>
-              <p>{league.description}</p>
-            
-              <Link href={`/leagues/league-ui/${league.league_name}`} className="text-blue-400 hover:underline">
-                View Details
-              </Link>
-            </li>
-          ))}
-        </ul>
+        {loading ? (
+          <div className="text-center py-8 text-gray-400">Loading leagues...</div>
+        ) : leagues.length > 0 ? (
+          <ul className="space-y-4">
+            {leagues.map((league) => (
+              <li key={league.league_id} className="p-4 bg-gray-700 rounded text-white">
+                <h2 className="text-xl font-bold">{league.league_name}</h2>
+                <p>{league.description}</p>
+              
+                <Link href={`/leagues/league-ui/${league.league_name}`} className="text-blue-400 hover:underline">
+                  View Details
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="text-center py-8 text-gray-400">No leagues found</div>
+        )}
       </div>
     </div>
   );
